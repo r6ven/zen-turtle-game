@@ -13,13 +13,16 @@
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
+
         body, html {
             width: 100%;
             height: 100%;
             overflow: hidden;
             background-color: #e3f2fd;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
         }
+
         #game-container {
             position: relative;
             width: 100%;
@@ -29,12 +32,17 @@
             align-items: center;
             background: linear-gradient(180deg, #b3e5fc 0%, #e3f2fd 100%);
         }
+
         canvas {
             display: block;
             box-shadow: 0 10px 30px rgba(0,0,0,0.08);
             max-width: 100%;
             max-height: 100%;
+            border-radius: 18px;
+            background: radial-gradient(circle at center, rgba(255,255,255,0.35), rgba(255,255,255,0));
+            touch-action: none;
         }
+
         #ui-layer {
             position: absolute;
             top: 0;
@@ -47,6 +55,7 @@
             justify-content: space-between;
             padding: 20px;
         }
+
         .hud-element {
             pointer-events: auto;
             background: rgba(255, 255, 255, 0.85);
@@ -62,29 +71,38 @@
             gap: 8px;
             border: 2px solid #c8e6c9;
         }
+
         .top-bar {
             display: flex;
             justify-content: space-between;
             width: 100%;
+            gap: 10px;
         }
+
         .bottom-bar {
             display: flex;
             justify-content: center;
             width: 100%;
             margin-bottom: 10px;
         }
+
         #level-indicator {
             font-size: 18px;
             color: #1b5e20;
         }
-        #hint-btn {
+
+        #hint-btn,
+        #sound-toggle {
             cursor: pointer;
-            transition: transform 0.2s;
+            transition: transform 0.2s, background 0.2s;
             background: #fff;
         }
-        #hint-btn:active {
+
+        #hint-btn:active,
+        #sound-toggle:active {
             transform: scale(0.95);
         }
+
         #completion-overlay {
             position: absolute;
             top: 0;
@@ -101,10 +119,12 @@
             transition: opacity 0.6s ease;
             z-index: 10;
         }
+
         #completion-overlay.active {
             opacity: 1;
             pointer-events: auto;
         }
+
         .modal-content {
             background: white;
             padding: 30px 40px;
@@ -114,20 +134,25 @@
             border: 3px solid #a5d6a7;
             transform: translateY(20px);
             transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-width: min(90vw, 460px);
         }
+
         #completion-overlay.active .modal-content {
             transform: translateY(0);
         }
+
         .modal-content h2 {
             color: #2e7d32;
             margin-bottom: 10px;
             font-size: 24px;
         }
+
         .modal-content p {
             color: #666;
             margin-bottom: 20px;
             font-size: 16px;
         }
+
         .next-btn {
             background: linear-gradient(135deg, #81c784 0%, #4caf50 100%);
             color: white;
@@ -140,27 +165,46 @@
             box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
             transition: transform 0.2s, box-shadow 0.2s;
         }
+
         .next-btn:active {
             transform: scale(0.95);
             box-shadow: 0 2px 5px rgba(76, 175, 80, 0.3);
         }
-        /* Cozy ambient sounds toggle */
-        #music-toggle {
-            cursor: pointer;
+
+        @media (max-width: 520px) {
+            #ui-layer {
+                padding: 12px;
+            }
+
+            .hud-element {
+                padding: 8px 12px;
+                font-size: 13px;
+                border-radius: 16px;
+            }
+
+            #level-indicator {
+                font-size: 14px;
+            }
+
+            .modal-content {
+                padding: 24px 22px;
+            }
         }
     </style>
 </head>
 <body>
 
-<div id-="game-container">
+<div id="game-container">
     <canvas id="gameCanvas"></canvas>
+
     <div id="ui-layer">
         <div class="top-bar">
             <div id="level-indicator" class="hud-element">🐢 Ada Seviyesi: <span id="lvl-val">1</span></div>
-            <div id="music-toggle" class="hud-element">🎵 Ses: Açık</div>
+            <div id="sound-toggle" class="hud-element">🎵 Ses: Açık</div>
         </div>
+
         <div class="bottom-bar">
-            <div id="hint-btn" class="hud-element">✨ Dinlendirici Akış</div>
+            <div id="hint-btn" class="hud-element">✨ Akış İpucu</div>
         </div>
     </div>
 </div>
@@ -168,140 +212,225 @@
 <div id="completion-overlay">
     <div class="modal-content">
         <h2>Harika Bir Uyum! 🌸</h2>
-        <p>Kaplumbağa adadaki su yollarını birleştirdi, çiçekler açtı!</p>
+        <p>Kaplumbağa adadaki tüm su yollarını birleştirdi, çiçekler açtı!</p>
         <button class="next-btn" id="next-lvl-btn">Sonraki Adaya Yüz 🌊</button>
     </div>
 </div>
 
 <script>
 /**
- * ZEN TURTLE ISLANDS - SEAMLESS HTML5 CANVAS GAME
- * Features: Procedural Hexagonal Water-Way Puzzle, Custom Rendered Vector Animations, 
- * Sound synthesis via Web Audio API, Soft Aesthetics, Mobile layout optimized.
+ * ZEN TURTLE ISLANDS
+ * Düzeltilmiş sürüm:
+ * - id hatası düzeltildi.
+ * - Harita artık çözülebilir üretiliyor: önce çözülmüş bağlantı ağı kuruluyor, sonra taşlar karıştırılıyor.
+ * - Başarı şartı %85 yerine tüm taşların bağlanması oldu.
+ * - Canvas tıklama/touch koordinatı CSS ölçeklenmesine karşı düzeltildi.
+ * - Hint butonu gerçekten çalışıyor.
+ * - Hex yönleri ve kanal çizimleri axial koordinat sistemiyle uyumlu hale getirildi.
+ * - Ses butonu adlandırması netleştirildi.
  */
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+
 const lvlVal = document.getElementById('lvl-val');
 const overlay = document.getElementById('completion-overlay');
 const nextBtn = document.getElementById('next-lvl-btn');
-const musicToggle = document.getElementById('music-toggle');
+const soundToggle = document.getElementById('sound-toggle');
+const hintBtn = document.getElementById('hint-btn');
 
-// Audio Context for Procedural Melodies & Soundscapes (No external asset files needed!)
 let audioCtx = null;
 let soundEnabled = true;
+
+let level = 1;
+let hexRadius = 45;
+let grid = {};
+let particles = [];
+let levelCompleted = false;
+
+let turtle = {
+    q: 0,
+    r: 0,
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    angle: 0,
+    targetAngle: 0,
+    animFrame: 0
+};
+
+const SQRT_3 = Math.sqrt(3);
+
+// Axial direction order:
+// 0: NE, 1: E, 2: SE, 3: SW, 4: W, 5: NW
+const DIR_NEIGHBORS = [
+    { q: 1, r: -1 },
+    { q: 1, r: 0 },
+    { q: 0, r: 1 },
+    { q: -1, r: 1 },
+    { q: -1, r: 0 },
+    { q: 0, r: -1 }
+];
+
+// Pointy-top hex kanal yönleri.
+const DIR_ANGLES = [
+    -Math.PI / 3,
+    0,
+    Math.PI / 3,
+    2 * Math.PI / 3,
+    Math.PI,
+    -2 * Math.PI / 3
+];
 
 function initAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
+
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
 }
 
 function playZenSound(type) {
     if (!soundEnabled) return;
+
     initAudio();
     if (!audioCtx) return;
 
     const now = audioCtx.currentTime;
+
     if (type === 'click') {
-        // Soft water drop pop
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
+
         osc.type = 'sine';
         osc.frequency.setValueAtTime(300, now);
         osc.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+
         gain.gain.setValueAtTime(0.15, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
         osc.connect(gain);
         gain.connect(audioCtx.destination);
+
         osc.start(now);
         osc.stop(now + 0.12);
-    } else if (type === 'success') {
-        // Pentatonic magical chord chime
-        const freqs = [329.63, 392.00, 440.00, 523.25, 587.33]; // E4, G4, A4, C5, D5
+    }
+
+    if (type === 'hint') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.18);
+
+        gain.gain.setValueAtTime(0.10, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.28);
+    }
+
+    if (type === 'success') {
+        const freqs = [329.63, 392.00, 440.00, 523.25, 587.33];
+
         freqs.forEach((f, index) => {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
+            const startTime = now + index * 0.06;
+
             osc.type = 'triangle';
-            osc.frequency.setValueAtTime(f, now + index * 0.06);
-            gain.gain.setValueAtTime(0.1, now + index * 0.06);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.06 + 0.6);
+            osc.frequency.setValueAtTime(f, startTime);
+
+            gain.gain.setValueAtTime(0.1, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.6);
+
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-            osc.start(now + index * 0.06);
-            osc.stop(now + index * 0.06 + 0.6);
+
+            osc.start(startTime);
+            osc.stop(startTime + 0.6);
         });
     }
 }
 
-musicToggle.addEventListener('click', () => {
-    soundEnabled = !soundEnabled;
-    musicToggle.innerText = soundEnabled ? "🎵 Ses: Açık" : "🔇 Ses: Kapalı";
-});
-
-// Game state variables
-let level = 1;
-let hexRadius = 45;
-let grid = {}; // stores columns and rows of hexagon tiles
-let turtle = { q: 0, r: 0, x: 0, y: 0, targetX: 0, targetY: 0, angle: 0, targetAngle: 0, animFrame: 0 };
-let particles = [];
-let levelCompleted = false;
-
-// Hexagon geometric math helpers
-// Using axial coordinates (q, r)
-const SQRT_3 = Math.sqrt(3);
-
 function hexToPixel(q, r) {
-    let x = hexRadius * (SQRT_3 * q + SQRT_3/2 * r);
-    let y = hexRadius * (3/2 * r);
-    return { x: x, y: y };
+    return {
+        x: hexRadius * (SQRT_3 * q + SQRT_3 / 2 * r),
+        y: hexRadius * (3 / 2 * r)
+    };
 }
 
 function pixelToHex(x, y) {
-    let q = (SQRT_3/3 * x - 1/3 * y) / hexRadius;
-    let r = (2/3 * y) / hexRadius;
+    const q = (SQRT_3 / 3 * x - 1 / 3 * y) / hexRadius;
+    const r = (2 / 3 * y) / hexRadius;
     return hexRound(q, r);
 }
 
 function hexRound(q, r) {
-    let s = -q - r;
+    const s = -q - r;
+
     let qi = Math.round(q);
     let ri = Math.round(r);
     let si = Math.round(s);
-    let q_diff = Math.abs(qi - q);
-    let r_diff = Math.abs(ri - r);
-    let s_diff = Math.abs(si - s);
-    if (q_diff > r_diff && q_diff > s_diff) {
+
+    const qDiff = Math.abs(qi - q);
+    const rDiff = Math.abs(ri - r);
+    const sDiff = Math.abs(si - s);
+
+    if (qDiff > rDiff && qDiff > sDiff) {
         qi = -ri - si;
-    } else if (r_diff > s_diff) {
+    } else if (rDiff > sDiff) {
         ri = -qi - si;
     }
+
     return { q: qi, r: ri };
 }
 
-// Connections definition for tiles (6 directions clockwise starting from Top-Right)
-// 0: NE, 1: E, 2: SE, 3: SW, 4: W, 5: NW
-const DIR_NEIGHBORS = [
-    {q: 1, r: -1}, {q: 1, r: 0}, {q: 0, r: 1},
-    {q: -1, r: 1}, {q: -1, r: 0}, {q: 0, r: -1}
-];
+function tileKey(q, r) {
+    return `${q},${r}`;
+}
+
+function oppositeDir(dirIndex) {
+    return (dirIndex + 3) % 6;
+}
+
+function shuffled(array) {
+    const copy = [...array];
+
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+
+    return copy;
+}
 
 class Tile {
     constructor(q, r, exits) {
         this.q = q;
         this.r = r;
-        this.exits = exits; // array of 6 booleans indicating water connections
-        this.rotation = Math.floor(Math.random() * 6); // initial random rotation
+        this.exits = exits;
+        this.rotation = 0;
         this.flowerBloomed = false;
         this.flowerScale = 0;
         this.pulsePhase = Math.random() * Math.PI * 2;
+        this.hintGlow = 0;
     }
 
     getActualExits() {
-        let actual = new Array(6);
-        for(let i=0; i<6; i++) {
+        const actual = new Array(6).fill(false);
+
+        for (let i = 0; i < 6; i++) {
             actual[(i + this.rotation) % 6] = this.exits[i];
         }
+
         return actual;
     }
 
@@ -309,167 +438,364 @@ class Tile {
         this.rotation = (this.rotation + 1) % 6;
         playZenSound('click');
     }
+
+    isSolvedOrientation() {
+        return this.rotation === 0;
+    }
 }
 
-// Build a beautiful procedural connected layout map
-function generateLevel() {
-    grid = {};
-    levelCompleted = false;
-    overlay.classList.remove('active');
-    
-    // Size grows mildly based on level but caps to remain screen-friendly and cozy
-    let mapRadius = 2;
-    if (level >= 3) mapRadius = 3;
-    
-    // Pre-defined tile flow pieces to ensure solution path existence
-    const templateExits = [
-        [true, true, false, false, false, false],
-        [false, true, true, false, false, false],
-        [true, false, false, true, false, false],
-        [true, false, true, false, true, false],
-        [false, true, false, true, false, true]
-    ];
+function buildHexCoordinateList(mapRadius) {
+    const coords = [];
 
     for (let q = -mapRadius; q <= mapRadius; q++) {
-        let r1 = Math.max(-mapRadius, -q - mapRadius);
-        let r2 = Math.min(mapRadius, -q + mapRadius);
+        const r1 = Math.max(-mapRadius, -q - mapRadius);
+        const r2 = Math.min(mapRadius, -q + mapRadius);
+
         for (let r = r1; r <= r2; r++) {
-            let exits = [...templateExits[Math.floor(Math.random() * templateExits.length)]];
-            grid[`${q},${r}`] = new Tile(q, r, exits);
+            coords.push({ q, r });
         }
     }
 
-    // Force turtle home tile to have a good connection
-    if(grid['0,0']) {
-        grid['0,0'].exits = [true, true, false, false, true, false];
-    }
-
-    // Make sure it's not solved instantly at start by shuffling
-    Object.values(grid).forEach(tile => {
-        if(Math.random() > 0.3) {
-            tile.rotation = Math.floor(Math.random() * 6);
-        }
-    });
-
-    // Reset Turtle
-    turtle.q = 0;
-    turtle.r = 0;
-    let pos = hexToPixel(0, 0);
-    turtle.x = pos.x;
-    turtle.y = pos.y;
-    turtle.targetX = pos.x;
-    turtle.targetY = pos.y;
-    turtle.angle = 0;
-    turtle.targetAngle = 0;
-
-    checkConnections();
+    return coords;
 }
 
-function checkConnections() {
-    // DFS / Floodfill from Center to check active continuous network harmony
-    let visited = {};
-    let queue = ['0,0'];
-    visited['0,0'] = true;
+function createSolvedExitMap(coords) {
+    const exitMap = {};
 
-    while(queue.length > 0) {
-        let currentKey = queue.shift();
-        let tile = grid[currentKey];
-        if(!tile) continue;
+    coords.forEach(({ q, r }) => {
+        exitMap[tileKey(q, r)] = new Array(6).fill(false);
+    });
 
-        let actualExits = tile.getActualExits();
+    const allKeys = coords.map(({ q, r }) => tileKey(q, r));
+    const visited = new Set(['0,0']);
+    let stack = ['0,0'];
 
-        for(let i=0; i<6; i++) {
-            if(actualExits[i]) {
-                let dir = DIR_NEIGHBORS[i];
-                let nQ = tile.q + dir.q;
-                let nR = tile.r + dir.r;
-                let neighborKey = `${nQ},${nR}`;
+    // Randomized DFS spanning tree: tüm taşları bağlayan garanti çözülebilir ana iskelet.
+    while (visited.size < allKeys.length) {
+        if (stack.length === 0) {
+            const reconnectCandidate = shuffled([...visited]).find(key => {
+                const [q, r] = key.split(',').map(Number);
+                return DIR_NEIGHBORS.some(dir => {
+                    const nKey = tileKey(q + dir.q, r + dir.r);
+                    return exitMap[nKey] && !visited.has(nKey);
+                });
+            });
 
-                if(grid[neighborKey] && !visited[neighborKey]) {
-                    // Check if neighbor matches exit connection (opposite direction)
-                    let oppositeDir = (i + 3) % 6;
-                    let neighborExits = grid[neighborKey].getActualExits();
-                    if(neighborExits[oppositeDir]) {
-                        visited[neighborKey] = true;
-                        queue.push(neighborKey);
-                    }
-                }
+            if (reconnectCandidate) {
+                stack.push(reconnectCandidate);
+            } else {
+                break;
+            }
+        }
+
+        const currentKey = stack[stack.length - 1];
+        const [q, r] = currentKey.split(',').map(Number);
+
+        const options = shuffled(DIR_NEIGHBORS.map((dir, index) => ({ ...dir, index })))
+            .filter(dir => {
+                const nKey = tileKey(q + dir.q, r + dir.r);
+                return exitMap[nKey] && !visited.has(nKey);
+            });
+
+        if (options.length === 0) {
+            stack.pop();
+            continue;
+        }
+
+        const picked = options[0];
+        const neighborKey = tileKey(q + picked.q, r + picked.r);
+
+        exitMap[currentKey][picked.index] = true;
+        exitMap[neighborKey][oppositeDir(picked.index)] = true;
+
+        visited.add(neighborKey);
+        stack.push(neighborKey);
+    }
+
+    // Birkaç ekstra bağlantı ekle: tek doğru yol hissini kırar, ama çözümü bozmaz.
+    coords.forEach(({ q, r }) => {
+        const currentKey = tileKey(q, r);
+
+        DIR_NEIGHBORS.forEach((dir, index) => {
+            const neighborKey = tileKey(q + dir.q, r + dir.r);
+
+            if (!exitMap[neighborKey]) return;
+            if (exitMap[currentKey][index]) return;
+            if (Math.random() > 0.16) return;
+
+            exitMap[currentKey][index] = true;
+            exitMap[neighborKey][oppositeDir(index)] = true;
+        });
+    });
+
+    return exitMap;
+}
+
+function shuffleLevelRotations() {
+    const tiles = Object.values(grid);
+
+    tiles.forEach(tile => {
+        tile.rotation = Math.floor(Math.random() * 6);
+    });
+
+    // Başlangıçta yanlışlıkla çözülmüş ya da fazla çözülmüş başlamasın.
+    for (let attempt = 0; attempt < 30; attempt++) {
+        const connectedCount = calculateConnectedKeys().size;
+        const tooEasy = connectedCount > Object.keys(grid).length * 0.45;
+        const allSolved = tiles.every(tile => tile.isSolvedOrientation());
+
+        if (!tooEasy && !allSolved) {
+            return;
+        }
+
+        tiles.forEach(tile => {
+            tile.rotation = Math.floor(Math.random() * 6);
+        });
+    }
+
+    // Son güvence: merkez dışındaki birkaç taşı boz.
+    tiles
+        .filter(tile => tile.q !== 0 || tile.r !== 0)
+        .slice(0, 4)
+        .forEach(tile => {
+            tile.rotation = (tile.rotation + 1 + Math.floor(Math.random() * 5)) % 6;
+        });
+}
+
+function generateLevel() {
+    grid = {};
+    particles = [];
+    levelCompleted = false;
+    overlay.classList.remove('active');
+
+    let mapRadius = 2;
+
+    if (level >= 3) {
+        mapRadius = 3;
+    }
+
+    const coords = buildHexCoordinateList(mapRadius);
+    const exitMap = createSolvedExitMap(coords);
+
+    coords.forEach(({ q, r }) => {
+        const key = tileKey(q, r);
+        grid[key] = new Tile(q, r, exitMap[key]);
+    });
+
+    shuffleLevelRotations();
+
+    turtle.q = 0;
+    turtle.r = 0;
+    turtle.angle = 0;
+    turtle.targetAngle = 0;
+    syncTurtleToCurrentTile(true);
+
+    checkConnections({ allowCompletion: false });
+}
+
+function calculateConnectedKeys() {
+    const startKey = '0,0';
+    const visited = new Set();
+
+    if (!grid[startKey]) {
+        return visited;
+    }
+
+    const queue = [startKey];
+    visited.add(startKey);
+
+    while (queue.length > 0) {
+        const currentKey = queue.shift();
+        const tile = grid[currentKey];
+
+        if (!tile) continue;
+
+        const actualExits = tile.getActualExits();
+
+        for (let i = 0; i < 6; i++) {
+            if (!actualExits[i]) continue;
+
+            const dir = DIR_NEIGHBORS[i];
+            const nQ = tile.q + dir.q;
+            const nR = tile.r + dir.r;
+            const neighborKey = tileKey(nQ, nR);
+            const neighbor = grid[neighborKey];
+
+            if (!neighbor || visited.has(neighborKey)) continue;
+
+            const neighborExits = neighbor.getActualExits();
+            const opposite = oppositeDir(i);
+
+            if (neighborExits[opposite]) {
+                visited.add(neighborKey);
+                queue.push(neighborKey);
             }
         }
     }
 
-    // Update bloom states based on connected components
-    let totalTiles = Object.keys(grid).length;
-    let connectedCount = 0;
+    return visited;
+}
+
+function checkConnections({ allowCompletion = true } = {}) {
+    const connectedKeys = calculateConnectedKeys();
+    const totalTiles = Object.keys(grid).length;
 
     Object.keys(grid).forEach(key => {
-        if(visited[key]) {
-            grid[key].flowerBloomed = true;
-            connectedCount++;
-        } else {
-            grid[key].flowerBloomed = false;
-        }
+        grid[key].flowerBloomed = connectedKeys.has(key);
     });
 
-    // Custom success threshold for cozy game progression (e.g. 80% or more connected water channels)
-    if (connectedCount >= totalTiles * 0.85 && !levelCompleted) {
+    if (allowCompletion && connectedKeys.size === totalTiles && !levelCompleted) {
         levelCompleted = true;
         playZenSound('success');
         createCelebrationParticles();
+
         setTimeout(() => {
             overlay.classList.add('active');
-        }, 1200);
+        }, 900);
+    }
+
+    return {
+        connectedCount: connectedKeys.size,
+        totalTiles
+    };
+}
+
+function syncTurtleToCurrentTile(instant = false) {
+    const pos = hexToPixel(turtle.q, turtle.r);
+
+    turtle.targetX = pos.x;
+    turtle.targetY = pos.y;
+
+    if (instant) {
+        turtle.x = pos.x;
+        turtle.y = pos.y;
     }
 }
 
+function moveTurtleTo(q, r) {
+    turtle.q = q;
+    turtle.r = r;
+
+    const targetPos = hexToPixel(q, r);
+    turtle.targetX = targetPos.x;
+    turtle.targetY = targetPos.y;
+    turtle.targetAngle = Math.atan2(turtle.targetY - turtle.y, turtle.targetX - turtle.x);
+}
+
 function createCelebrationParticles() {
-    for(let i=0; i<60; i++) {
+    for (let i = 0; i < 70; i++) {
         particles.push({
-            x: (Math.random() - 0.5) * canvas.width * 0.6,
-            y: (Math.random() - 0.5) * canvas.height * 0.6,
+            x: (Math.random() - 0.5) * canvas.width * 0.45,
+            y: (Math.random() - 0.5) * canvas.height * 0.45,
             vx: (Math.random() - 0.5) * 4,
             vy: (Math.random() - 0.5) * 4 - 2,
             radius: Math.random() * 5 + 3,
-            color: `hsl(${Math.random() * 60 + 320}, 90%, 75%)`, // cute pink/lavender flowers
-            alpha: 1,
-            life: 1
+            color: `hsl(${Math.random() * 60 + 320}, 90%, 75%)`,
+            alpha: 1
         });
     }
 }
 
-// Interaction handling
-function handleInteraction(clientX, clientY) {
-    if (levelCompleted) return;
+function createHintParticles(tile) {
+    const pos = hexToPixel(tile.q, tile.r);
 
-    let rect = canvas.getBoundingClientRect();
-    // Translate screenspace tap to responsive canvas coordinates centered on origin
-    let mouseX = (clientX - rect.left) - canvas.width / 2;
-    let mouseY = (clientY - rect.top) - canvas.height / 2;
-
-    let clickedHex = pixelToHex(mouseX, mouseY);
-    let key = `${clickedHex.q},${clickedHex.r}`;
-
-    if(grid[key]) {
-        grid[key].rotate();
-        
-        // Turtle cute reaction swim to the clicked tile if connected
-        if(grid[key].flowerBloomed) {
-            turtle.q = clickedHex.q;
-            turtle.r = clickedHex.r;
-            let targetPos = hexToPixel(turtle.q, turtle.r);
-            turtle.targetX = targetPos.x;
-            turtle.targetY = targetPos.y;
-            turtle.targetAngle = Math.atan2(turtle.targetY - turtle.y, turtle.targetX - turtle.x);
-        }
-
-        checkConnections();
+    for (let i = 0; i < 12; i++) {
+        particles.push({
+            x: pos.x + (Math.random() - 0.5) * hexRadius,
+            y: pos.y + (Math.random() - 0.5) * hexRadius,
+            vx: (Math.random() - 0.5) * 1.6,
+            vy: (Math.random() - 0.5) * 1.6 - 0.5,
+            radius: Math.random() * 3 + 2,
+            color: 'hsl(48, 95%, 70%)',
+            alpha: 0.9
+        });
     }
 }
 
-canvas.addEventListener('mousedown', (e) => handleInteraction(e.clientX, e.clientY));
-canvas.addEventListener('touchstart', (e) => {
-    if(e.touches.length > 0) {
-        handleInteraction(e.touches[0].clientX, e.touches[0].clientY);
+function handleInteraction(clientX, clientY) {
+    if (levelCompleted) return;
+
+    initAudio();
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const mouseX = ((clientX - rect.left) * scaleX) - canvas.width / 2;
+    const mouseY = ((clientY - rect.top) * scaleY) - canvas.height / 2;
+
+    const clickedHex = pixelToHex(mouseX, mouseY);
+    const key = tileKey(clickedHex.q, clickedHex.r);
+    const tile = grid[key];
+
+    if (!tile) return;
+
+    tile.rotate();
+
+    checkConnections();
+
+    // Eski koddaki küçük mantık hatası düzeltildi:
+    // Kaplumbağa, taş döndürüldükten ve bağlantı tekrar hesaplandıktan sonra yüzüyor.
+    if (tile.flowerBloomed) {
+        moveTurtleTo(clickedHex.q, clickedHex.r);
+    }
+}
+
+function useHint() {
+    if (levelCompleted) return;
+
+    initAudio();
+
+    const candidates = Object.values(grid).filter(tile => !tile.isSolvedOrientation());
+
+    if (candidates.length === 0) {
+        checkConnections();
+        return;
+    }
+
+    let bestTile = candidates[0];
+    let bestScore = -1;
+
+    candidates.forEach(tile => {
+        const oldRotation = tile.rotation;
+
+        tile.rotation = 0;
+        const score = calculateConnectedKeys().size;
+        tile.rotation = oldRotation;
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestTile = tile;
+        }
+    });
+
+    bestTile.rotation = 0;
+    bestTile.hintGlow = 1;
+    playZenSound('hint');
+    createHintParticles(bestTile);
+
+    checkConnections();
+
+    if (bestTile.flowerBloomed) {
+        moveTurtleTo(bestTile.q, bestTile.r);
+    }
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handleInteraction(e.clientX, e.clientY);
+}, { passive: false });
+
+hintBtn.addEventListener('click', () => {
+    useHint();
+});
+
+soundToggle.addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    soundToggle.innerText = soundEnabled ? '🎵 Ses: Açık' : '🔇 Ses: Kapalı';
+
+    if (soundEnabled) {
+        playZenSound('hint');
     }
 });
 
@@ -479,158 +805,198 @@ nextBtn.addEventListener('click', () => {
     generateLevel();
 });
 
-// Setup canvas sizing and layout preservation
 function resizeCanvas() {
     const size = Math.min(window.innerWidth, window.innerHeight, 800);
+
     canvas.width = size;
     canvas.height = size;
-    
-    // Scale hexagon sizes perfectly dynamic for screen sizes
-    if(window.innerWidth < 500) {
-        hexRadius = 34;
-    } else {
-        hexRadius = 46;
-    }
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+
+    hexRadius = window.innerWidth < 500 ? 34 : 46;
+
+    syncTurtleToCurrentTile(true);
 }
+
 window.addEventListener('resize', resizeCanvas);
 
-// Rendering / Canvas drawing loop
 function drawHexagon(ctx, x, y, radius, tile) {
     ctx.save();
     ctx.translate(x, y);
-    
-    // Breathing soft scale animation
+
     tile.pulsePhase += 0.02;
-    let pulse = Math.sin(tile.pulsePhase) * 1.5;
-    
-    // Draw Land / Island base
+
+    if (tile.hintGlow > 0) {
+        tile.hintGlow -= 0.025;
+    }
+
+    const pulse = Math.sin(tile.pulsePhase) * 1.2;
+    const glowRadius = radius + pulse + tile.hintGlow * 12;
+
+    if (tile.hintGlow > 0) {
+        ctx.beginPath();
+
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i - Math.PI / 6;
+            const hX = glowRadius * Math.cos(angle);
+            const hY = glowRadius * Math.sin(angle);
+
+            if (i === 0) ctx.moveTo(hX, hY);
+            else ctx.lineTo(hX, hY);
+        }
+
+        ctx.closePath();
+        ctx.fillStyle = `rgba(255, 213, 79, ${tile.hintGlow * 0.18})`;
+        ctx.fill();
+    }
+
+    // Pointy-top hex çizimi, axial formülle uyumlu.
     ctx.beginPath();
+
     for (let i = 0; i < 6; i++) {
-        let angle = (Math.PI / 3) * i;
-        let hX = (radius + pulse - 2) * Math.cos(angle);
-        let hY = (radius + pulse - 2) * Math.sin(angle);
+        const angle = (Math.PI / 3) * i - Math.PI / 6;
+        const hX = (radius + pulse - 2) * Math.cos(angle);
+        const hY = (radius + pulse - 2) * Math.sin(angle);
+
         if (i === 0) ctx.moveTo(hX, hY);
         else ctx.lineTo(hX, hY);
     }
+
     ctx.closePath();
-    ctx.fillStyle = tile.flowerBloomed ? '#e8f5e9' : '#fff9c4'; // soft green if bloomed, cream if not
+    ctx.fillStyle = tile.flowerBloomed ? '#e8f5e9' : '#fff9c4';
     ctx.fill();
-    
-    // Soft stroke
+
     ctx.strokeStyle = tile.flowerBloomed ? '#a5d6a7' : '#f0f4c3';
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Draw Water Ways / Channels inside this tile
-    let actualExits = tile.getActualExits();
+    const actualExits = tile.getActualExits();
+    const channelLength = radius * Math.cos(Math.PI / 6) + 2;
+
     ctx.lineWidth = 12;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = tile.flowerBloomed ? '#29b6f6' : '#b3e5fc'; // Vivid calming blue when interconnected
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = tile.flowerBloomed ? '#29b6f6' : '#b3e5fc';
 
-    for(let i=0; i<6; i++) {
-        if(actualExits[i]) {
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            let angle = (Math.PI / 3) * i - (Math.PI / 6); // adjust to target faces
-            // Offset angles precisely for isometric side connection look
-            let edgeX = radius * Math.cos(angle + Math.PI/6);
-            let edgeY = radius * Math.sin(angle + Math.PI/6);
-            ctx.lineTo(edgeX, edgeY);
-            ctx.stroke();
-        }
+    for (let i = 0; i < 6; i++) {
+        if (!actualExits[i]) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(
+            channelLength * Math.cos(DIR_ANGLES[i]),
+            channelLength * Math.sin(DIR_ANGLES[i])
+        );
+        ctx.stroke();
     }
 
-    // Draw little procedural central lotus/flower
-    if(tile.flowerBloomed) {
-        if(tile.flowerScale < 1) tile.flowerScale += 0.05;
+    if (tile.flowerBloomed) {
+        tile.flowerScale = Math.min(1, tile.flowerScale + 0.05);
     } else {
-        if(tile.flowerScale > 0) tile.flowerScale -= 0.05;
+        tile.flowerScale = Math.max(0, tile.flowerScale - 0.05);
     }
 
-    if(tile.flowerScale > 0.01) {
+    if (tile.flowerScale > 0.01) {
+        ctx.save();
         ctx.scale(tile.flowerScale, tile.flowerScale);
-        ctx.fillStyle = '#ff80ab'; // gorgeous soft rose petal pink
-        for(let j=0; j<5; j++) {
+
+        ctx.fillStyle = '#ff80ab';
+
+        for (let j = 0; j < 5; j++) {
             ctx.rotate((Math.PI * 2) / 5);
             ctx.beginPath();
-            ctx.ellipse(0, -6, 4, 7, 0, 0, Math.PI*2);
+            ctx.ellipse(0, -6, 4, 7, 0, 0, Math.PI * 2);
             ctx.fill();
         }
+
         ctx.beginPath();
-        ctx.arc(0, 0, 4, 0, Math.PI*2);
-        ctx.fillStyle = '#ffd54f'; // warm yellow pistil center
+        ctx.arc(0, 0, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd54f';
         ctx.fill();
+
+        ctx.restore();
     }
 
     ctx.restore();
 }
 
 function drawTurtle(ctx) {
-    // Soft interpolation for smooth swimming move effect
     turtle.x += (turtle.targetX - turtle.x) * 0.08;
     turtle.y += (turtle.targetY - turtle.y) * 0.08;
-    
-    // Smooth angle interpolation
+
     let angleDiff = turtle.targetAngle - turtle.angle;
+
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-    turtle.angle += angleDiff * 0.1;
 
+    turtle.angle += angleDiff * 0.1;
     turtle.animFrame += 0.05;
-    let legWiggle = Math.sin(turtle.animFrame) * 3;
+
+    const legWiggle = Math.sin(turtle.animFrame) * 3;
 
     ctx.save();
-    ctx.translate(turtle.x, turtle.targetY === turtle.y ? turtle.y + Math.sin(turtle.animFrame)*1.2 : turtle.y);
-    ctx.rotate(turtle.angle + Math.PI/2); // adjustment for sprite layout orientation
+    ctx.translate(turtle.x, turtle.y + Math.sin(turtle.animFrame) * 1.2);
+    ctx.rotate(turtle.angle + Math.PI / 2);
 
-    // Draw flippers/legs
     ctx.fillStyle = '#81c784';
-    // Front Left Flipper
-    ctx.save(); ctx.translate(-14, -10); ctx.rotate(-0.3 + legWiggle*0.05); ctx.fillRect(-4, -12, 7, 14); ctx.restore();
-    // Front Right Flipper
-    ctx.save(); ctx.translate(14, -10); ctx.rotate(0.3 - legWiggle*0.05); ctx.fillRect(-3, -12, 7, 14); ctx.restore();
-    // Back legs
+
+    ctx.save();
+    ctx.translate(-14, -10);
+    ctx.rotate(-0.3 + legWiggle * 0.05);
+    ctx.fillRect(-4, -12, 7, 14);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(14, -10);
+    ctx.rotate(0.3 - legWiggle * 0.05);
+    ctx.fillRect(-3, -12, 7, 14);
+    ctx.restore();
+
     ctx.fillRect(-10, 10, 5, 8);
     ctx.fillRect(5, 10, 5, 8);
 
-    // Shell Body
     ctx.beginPath();
     ctx.arc(0, 0, 16, 0, Math.PI * 2);
-    ctx.fillStyle = '#4caf50'; // Cozy turtle green shell color
+    ctx.fillStyle = '#4caf50';
     ctx.fill();
+
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#2e7d32';
     ctx.stroke();
 
-    // Shell Pattern lines (cozy aesthetic details)
     ctx.beginPath();
     ctx.arc(0, 0, 9, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Cute Head
     ctx.beginPath();
     ctx.arc(0, -20, 6, 0, Math.PI * 2);
     ctx.fillStyle = '#a5d6a7';
     ctx.fill();
-    
-    // Tiny eyes
+
     ctx.fillStyle = '#333';
-    ctx.beginPath(); ctx.arc(-2, -22, 1, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(2, -22, 1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(-2, -22, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(2, -22, 1, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
 }
 
 function updateAndDrawParticles(ctx) {
     for (let i = particles.length - 1; i >= 0; i--) {
-        let p = particles[i];
+        const p = particles[i];
+
         p.x += p.vx;
         p.y += p.vy;
         p.alpha -= 0.015;
+
         if (p.alpha <= 0) {
             particles.splice(i, 1);
             continue;
         }
+
         ctx.save();
         ctx.globalAlpha = p.alpha;
         ctx.fillStyle = p.color;
@@ -642,35 +1008,28 @@ function updateAndDrawParticles(ctx) {
 }
 
 function gameLoop() {
-    // Clear screen with beautiful cloud-like ambient hue
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     ctx.save();
-    // Shift coordinate space origin directly to canvas center for isometric elegance
     ctx.translate(canvas.width / 2, canvas.height / 2);
 
-    // Draw all procedurally generated hex adas
     Object.keys(grid).forEach(key => {
-        let tile = grid[key];
-        let pos = hexToPixel(tile.q, tile.r);
+        const tile = grid[key];
+        const pos = hexToPixel(tile.q, tile.r);
         drawHexagon(ctx, pos.x, pos.y, hexRadius, tile);
     });
 
-    // Draw our lovely turtle savior
     drawTurtle(ctx);
-
-    // Update floating ambient success leaves/particles
     updateAndDrawParticles(ctx);
 
     ctx.restore();
+
     requestAnimationFrame(gameLoop);
 }
 
-// Spark up the cozy experience
 resizeCanvas();
 generateLevel();
 gameLoop();
-
 </script>
 </body>
 </html>
