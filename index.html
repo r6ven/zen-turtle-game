@@ -222,8 +222,8 @@
  * ZEN TURTLE ISLANDS
  * Düzeltilmiş sürüm:
  * - id hatası düzeltildi.
- * - Harita artık çözülebilir üretiliyor: önce çözülmüş bağlantı ağı kuruluyor, sonra taşlar karıştırılıyor.
- * - Başarı şartı %85 yerine tüm taşların bağlanması oldu.
+ * - Harita artık temiz omurga mantığıyla üretiliyor: sadece aktif parçalarda su yolu var.
+ * - Başarı şartı: aktif taşların tümü bağlı olacak ve hiçbir su çıkışı boşta kalmayacak.
  * - Canvas tıklama/touch koordinatı CSS ölçeklenmesine karşı düzeltildi.
  * - Hint butonu gerçekten çalışıyor.
  * - Hex yönleri ve kanal çizimleri axial koordinat sistemiyle uyumlu hale getirildi.
@@ -413,10 +413,12 @@ function shuffled(array) {
 }
 
 class Tile {
-    constructor(q, r, exits) {
+    constructor(q, r, exits, active = false) {
         this.q = q;
         this.r = r;
         this.exits = exits;
+        this.active = active;
+        this.endpoint = false;
         this.rotation = 0;
         this.flowerBloomed = false;
         this.flowerScale = 0;
@@ -427,6 +429,10 @@ class Tile {
     getActualExits() {
         const actual = new Array(6).fill(false);
 
+        if (!this.active) {
+            return actual;
+        }
+
         for (let i = 0; i < 6; i++) {
             actual[(i + this.rotation) % 6] = this.exits[i];
         }
@@ -435,12 +441,18 @@ class Tile {
     }
 
     rotate() {
+        if (!this.active) return;
+
         this.rotation = (this.rotation + 1) % 6;
         playZenSound('click');
     }
 
     isSolvedOrientation() {
-        return this.rotation === 0;
+        return !this.active || this.rotation === 0;
+    }
+
+    degree() {
+        return this.exits.filter(Boolean).length;
     }
 }
 
@@ -459,89 +471,134 @@ function buildHexCoordinateList(mapRadius) {
     return coords;
 }
 
-function createSolvedExitMap(coords) {
+function getDesiredActiveCount(mapRadius) {
+    // Tüm adaya su yolu basmıyoruz.
+    // Seviye büyüdükçe aktif parça sayısı artıyor ama ekran yine temiz kalıyor.
+    if (mapRadius === 2) {
+        return Math.min(10 + level, 13);
+    }
+
+    return Math.min(14 + level, 24);
+}
+
+function getDirectionIndex(from, to) {
+    for (let i = 0; i < DIR_NEIGHBORS.length; i++) {
+        const dir = DIR_NEIGHBORS[i];
+
+        if (from.q + dir.q === to.q && from.r + dir.r === to.r) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+function buildSparsePath(coords, desiredLength) {
+    const coordSet = new Set(coords.map(({ q, r }) => tileKey(q, r)));
+    const start = { q: 0, r: 0 };
+
+    function tryBuildPath() {
+        const path = [start];
+        const used = new Set([tileKey(start.q, start.r)]);
+
+        function dfs() {
+            if (path.length >= desiredLength) {
+                return true;
+            }
+
+            const current = path[path.length - 1];
+
+            const options = shuffled(DIR_NEIGHBORS.map(dir => ({
+                q: current.q + dir.q,
+                r: current.r + dir.r
+            }))).filter(candidate => {
+                const key = tileKey(candidate.q, candidate.r);
+                return coordSet.has(key) && !used.has(key);
+            });
+
+            for (const next of options) {
+                const key = tileKey(next.q, next.r);
+
+                used.add(key);
+                path.push(next);
+
+                if (dfs()) {
+                    return true;
+                }
+
+                path.pop();
+                used.delete(key);
+            }
+
+            return false;
+        }
+
+        return dfs() ? path : null;
+    }
+
+    for (let attempt = 0; attempt < 120; attempt++) {
+        const path = tryBuildPath();
+
+        if (path) {
+            return path;
+        }
+    }
+
+    // Çok düşük ihtimalde DFS istediğimiz uzunluğu bulamazsa merkezden başlayan güvenli kısa yol.
+    return shuffled(coords)
+        .filter(({ q, r }) => q !== 0 || r !== 0)
+        .slice(0, desiredLength - 1)
+        .concat([{ q: 0, r: 0 }])
+        .reverse();
+}
+
+function createCleanSolvedMap(coords, mapRadius) {
     const exitMap = {};
+    const activeKeys = new Set();
+    const endpoints = new Set();
+    const desiredLength = Math.min(getDesiredActiveCount(mapRadius), coords.length);
+    const path = buildSparsePath(coords, desiredLength);
 
     coords.forEach(({ q, r }) => {
         exitMap[tileKey(q, r)] = new Array(6).fill(false);
     });
 
-    const allKeys = coords.map(({ q, r }) => tileKey(q, r));
-    const visited = new Set(['0,0']);
-    let stack = ['0,0'];
-
-    // Randomized DFS spanning tree: tüm taşları bağlayan garanti çözülebilir ana iskelet.
-    while (visited.size < allKeys.length) {
-        if (stack.length === 0) {
-            const reconnectCandidate = shuffled([...visited]).find(key => {
-                const [q, r] = key.split(',').map(Number);
-                return DIR_NEIGHBORS.some(dir => {
-                    const nKey = tileKey(q + dir.q, r + dir.r);
-                    return exitMap[nKey] && !visited.has(nKey);
-                });
-            });
-
-            if (reconnectCandidate) {
-                stack.push(reconnectCandidate);
-            } else {
-                break;
-            }
-        }
-
-        const currentKey = stack[stack.length - 1];
-        const [q, r] = currentKey.split(',').map(Number);
-
-        const options = shuffled(DIR_NEIGHBORS.map((dir, index) => ({ ...dir, index })))
-            .filter(dir => {
-                const nKey = tileKey(q + dir.q, r + dir.r);
-                return exitMap[nKey] && !visited.has(nKey);
-            });
-
-        if (options.length === 0) {
-            stack.pop();
-            continue;
-        }
-
-        const picked = options[0];
-        const neighborKey = tileKey(q + picked.q, r + picked.r);
-
-        exitMap[currentKey][picked.index] = true;
-        exitMap[neighborKey][oppositeDir(picked.index)] = true;
-
-        visited.add(neighborKey);
-        stack.push(neighborKey);
-    }
-
-    // Birkaç ekstra bağlantı ekle: tek doğru yol hissini kırar, ama çözümü bozmaz.
-    coords.forEach(({ q, r }) => {
-        const currentKey = tileKey(q, r);
-
-        DIR_NEIGHBORS.forEach((dir, index) => {
-            const neighborKey = tileKey(q + dir.q, r + dir.r);
-
-            if (!exitMap[neighborKey]) return;
-            if (exitMap[currentKey][index]) return;
-            if (Math.random() > 0.16) return;
-
-            exitMap[currentKey][index] = true;
-            exitMap[neighborKey][oppositeDir(index)] = true;
-        });
+    path.forEach(({ q, r }) => {
+        activeKeys.add(tileKey(q, r));
     });
 
-    return exitMap;
+    for (let i = 0; i < path.length - 1; i++) {
+        const current = path[i];
+        const next = path[i + 1];
+        const dirIndex = getDirectionIndex(current, next);
+
+        if (dirIndex === -1) continue;
+
+        const currentKey = tileKey(current.q, current.r);
+        const nextKey = tileKey(next.q, next.r);
+
+        exitMap[currentKey][dirIndex] = true;
+        exitMap[nextKey][oppositeDir(dirIndex)] = true;
+    }
+
+    endpoints.add(tileKey(path[0].q, path[0].r));
+    endpoints.add(tileKey(path[path.length - 1].q, path[path.length - 1].r));
+
+    return { exitMap, activeKeys, endpoints };
 }
 
+
 function shuffleLevelRotations() {
-    const tiles = Object.values(grid);
+    const tiles = Object.values(grid).filter(tile => tile.active);
 
     tiles.forEach(tile => {
         tile.rotation = Math.floor(Math.random() * 6);
     });
 
     // Başlangıçta yanlışlıkla çözülmüş ya da fazla çözülmüş başlamasın.
-    for (let attempt = 0; attempt < 30; attempt++) {
+    for (let attempt = 0; attempt < 40; attempt++) {
         const connectedCount = calculateConnectedKeys().size;
-        const tooEasy = connectedCount > Object.keys(grid).length * 0.45;
+        const tooEasy = connectedCount > tiles.length * 0.45;
         const allSolved = tiles.every(tile => tile.isSolvedOrientation());
 
         if (!tooEasy && !allSolved) {
@@ -553,7 +610,7 @@ function shuffleLevelRotations() {
         });
     }
 
-    // Son güvence: merkez dışındaki birkaç taşı boz.
+    // Son güvence: merkez dışındaki birkaç aktif taşı boz.
     tiles
         .filter(tile => tile.q !== 0 || tile.r !== 0)
         .slice(0, 4)
@@ -561,6 +618,7 @@ function shuffleLevelRotations() {
             tile.rotation = (tile.rotation + 1 + Math.floor(Math.random() * 5)) % 6;
         });
 }
+
 
 function generateLevel() {
     grid = {};
@@ -575,11 +633,14 @@ function generateLevel() {
     }
 
     const coords = buildHexCoordinateList(mapRadius);
-    const exitMap = createSolvedExitMap(coords);
+    const cleanMap = createCleanSolvedMap(coords, mapRadius);
 
     coords.forEach(({ q, r }) => {
         const key = tileKey(q, r);
-        grid[key] = new Tile(q, r, exitMap[key]);
+        const active = cleanMap.activeKeys.has(key);
+
+        grid[key] = new Tile(q, r, cleanMap.exitMap[key], active);
+        grid[key].endpoint = cleanMap.endpoints.has(key);
     });
 
     shuffleLevelRotations();
@@ -593,11 +654,12 @@ function generateLevel() {
     checkConnections({ allowCompletion: false });
 }
 
+
 function calculateConnectedKeys() {
     const startKey = '0,0';
     const visited = new Set();
 
-    if (!grid[startKey]) {
+    if (!grid[startKey] || !grid[startKey].active) {
         return visited;
     }
 
@@ -608,7 +670,7 @@ function calculateConnectedKeys() {
         const currentKey = queue.shift();
         const tile = grid[currentKey];
 
-        if (!tile) continue;
+        if (!tile || !tile.active) continue;
 
         const actualExits = tile.getActualExits();
 
@@ -621,7 +683,7 @@ function calculateConnectedKeys() {
             const neighborKey = tileKey(nQ, nR);
             const neighbor = grid[neighborKey];
 
-            if (!neighbor || visited.has(neighborKey)) continue;
+            if (!neighbor || !neighbor.active || visited.has(neighborKey)) continue;
 
             const neighborExits = neighbor.getActualExits();
             const opposite = oppositeDir(i);
@@ -636,15 +698,80 @@ function calculateConnectedKeys() {
     return visited;
 }
 
-function checkConnections({ allowCompletion = true } = {}) {
-    const connectedKeys = calculateConnectedKeys();
-    const totalTiles = Object.keys(grid).length;
+function isExitMatched(tile, dirIndex) {
+    if (!tile || !tile.active) return false;
 
-    Object.keys(grid).forEach(key => {
-        grid[key].flowerBloomed = connectedKeys.has(key);
+    const exits = tile.getActualExits();
+
+    if (!exits[dirIndex]) return false;
+
+    const dir = DIR_NEIGHBORS[dirIndex];
+    const neighbor = grid[tileKey(tile.q + dir.q, tile.r + dir.r)];
+
+    if (!neighbor || !neighbor.active) return false;
+
+    const neighborExits = neighbor.getActualExits();
+
+    return neighborExits[oppositeDir(dirIndex)] === true;
+}
+
+function tileHasAllExitsMatched(tile) {
+    if (!tile || !tile.active) return true;
+
+    const exits = tile.getActualExits();
+
+    for (let i = 0; i < 6; i++) {
+        if (exits[i] && !isExitMatched(tile, i)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function countDanglingExits() {
+    let count = 0;
+
+    Object.values(grid).forEach(tile => {
+        if (!tile.active) return;
+
+        const exits = tile.getActualExits();
+
+        for (let i = 0; i < 6; i++) {
+            if (exits[i] && !isExitMatched(tile, i)) {
+                count++;
+            }
+        }
     });
 
-    if (allowCompletion && connectedKeys.size === totalTiles && !levelCompleted) {
+    return count;
+}
+
+
+function checkConnections({ allowCompletion = true } = {}) {
+    const connectedKeys = calculateConnectedKeys();
+    const activeTiles = Object.values(grid).filter(tile => tile.active);
+    const danglingExitCount = countDanglingExits();
+    let fullyValidConnectedCount = 0;
+
+    Object.keys(grid).forEach(key => {
+        const tile = grid[key];
+
+        tile.flowerBloomed = tile.active &&
+            connectedKeys.has(key) &&
+            tileHasAllExitsMatched(tile);
+
+        if (tile.flowerBloomed) {
+            fullyValidConnectedCount++;
+        }
+    });
+
+    if (
+        allowCompletion &&
+        connectedKeys.size === activeTiles.length &&
+        danglingExitCount === 0 &&
+        !levelCompleted
+    ) {
         levelCompleted = true;
         playZenSound('success');
         createCelebrationParticles();
@@ -655,10 +782,12 @@ function checkConnections({ allowCompletion = true } = {}) {
     }
 
     return {
-        connectedCount: connectedKeys.size,
-        totalTiles
+        connectedCount: fullyValidConnectedCount,
+        totalTiles: activeTiles.length,
+        danglingExitCount
     };
 }
+
 
 function syncTurtleToCurrentTile(instant = false) {
     const pos = hexToPixel(turtle.q, turtle.r);
@@ -728,25 +857,24 @@ function handleInteraction(clientX, clientY) {
     const key = tileKey(clickedHex.q, clickedHex.r);
     const tile = grid[key];
 
-    if (!tile) return;
+    if (!tile || !tile.active) return;
 
     tile.rotate();
 
     checkConnections();
 
-    // Eski koddaki küçük mantık hatası düzeltildi:
-    // Kaplumbağa, taş döndürüldükten ve bağlantı tekrar hesaplandıktan sonra yüzüyor.
     if (tile.flowerBloomed) {
         moveTurtleTo(clickedHex.q, clickedHex.r);
     }
 }
+
 
 function useHint() {
     if (levelCompleted) return;
 
     initAudio();
 
-    const candidates = Object.values(grid).filter(tile => !tile.isSolvedOrientation());
+    const candidates = Object.values(grid).filter(tile => tile.active && !tile.isSolvedOrientation());
 
     if (candidates.length === 0) {
         checkConnections();
@@ -760,7 +888,10 @@ function useHint() {
         const oldRotation = tile.rotation;
 
         tile.rotation = 0;
-        const score = calculateConnectedKeys().size;
+
+        const status = checkConnections({ allowCompletion: false });
+        const score = status.connectedCount * 10 - status.danglingExitCount;
+
         tile.rotation = oldRotation;
 
         if (score > bestScore) {
@@ -771,9 +902,9 @@ function useHint() {
 
     bestTile.rotation = 0;
     bestTile.hintGlow = 1;
+
     playZenSound('hint');
     createHintParticles(bestTile);
-
     checkConnections();
 
     if (bestTile.flowerBloomed) {
@@ -830,7 +961,7 @@ function drawHexagon(ctx, x, y, radius, tile) {
         tile.hintGlow -= 0.025;
     }
 
-    const pulse = Math.sin(tile.pulsePhase) * 1.2;
+    const pulse = Math.sin(tile.pulsePhase) * 1.0;
     const glowRadius = radius + pulse + tile.hintGlow * 12;
 
     if (tile.hintGlow > 0) {
@@ -850,7 +981,6 @@ function drawHexagon(ctx, x, y, radius, tile) {
         ctx.fill();
     }
 
-    // Pointy-top hex çizimi, axial formülle uyumlu.
     ctx.beginPath();
 
     for (let i = 0; i < 6; i++) {
@@ -863,6 +993,17 @@ function drawHexagon(ctx, x, y, radius, tile) {
     }
 
     ctx.closePath();
+
+    if (!tile.active) {
+        ctx.fillStyle = 'rgba(255, 249, 196, 0.42)';
+        ctx.strokeStyle = 'rgba(165, 214, 167, 0.28)';
+        ctx.lineWidth = 2;
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        return;
+    }
+
     ctx.fillStyle = tile.flowerBloomed ? '#e8f5e9' : '#fff9c4';
     ctx.fill();
 
@@ -875,10 +1016,16 @@ function drawHexagon(ctx, x, y, radius, tile) {
 
     ctx.lineWidth = 12;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = tile.flowerBloomed ? '#29b6f6' : '#b3e5fc';
 
     for (let i = 0; i < 6; i++) {
         if (!actualExits[i]) continue;
+
+        const matched = isExitMatched(tile, i);
+
+        // Kritik düzeltme:
+        // Taş bağlı olsa bile eşleşmeyen kolu koyu mavi boyama.
+        // Böylece "puzzle bitti ama kenar boşta kaldı" görüntüsü oluşmaz.
+        ctx.strokeStyle = tile.flowerBloomed && matched ? '#29b6f6' : '#b3e5fc';
 
         ctx.beginPath();
         ctx.moveTo(0, 0);
@@ -909,8 +1056,8 @@ function drawHexagon(ctx, x, y, radius, tile) {
         }
 
         ctx.beginPath();
-        ctx.arc(0, 0, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffd54f';
+        ctx.arc(0, 0, tile.endpoint ? 5 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = tile.endpoint ? '#ffca28' : '#ffd54f';
         ctx.fill();
 
         ctx.restore();
@@ -918,6 +1065,7 @@ function drawHexagon(ctx, x, y, radius, tile) {
 
     ctx.restore();
 }
+
 
 function drawTurtle(ctx) {
     turtle.x += (turtle.targetX - turtle.x) * 0.08;
